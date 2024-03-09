@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <sattard@slack-corp.com>
+Date: Thu, 27 May 2021 17:21:07 -0700
+Subject: build: do not depend on packed_resource_integrity
+
+This ensures we do not depend on a target that does not exist when
+building Electron, electron generates its own .pak files via
+electron_repack and therefore this integrity target which is generated
+by the chrome_paks target does not exist.  This can not be upstreamed,
+if we ever align our .pak file generation with Chrome we can remove this
+patch.
+
+diff --git a/chrome/BUILD.gn b/chrome/BUILD.gn
+index d09e7aeb788550e7ecefb4b9c177dd26ecc5ad4c..c894dc421f55a94e541d00e05e2f05bfec907ab1 100644
+--- a/chrome/BUILD.gn
++++ b/chrome/BUILD.gn
+@@ -195,11 +195,16 @@ if (!is_android && !is_mac && !is_fuchsia) {
+           "common/crash_keys.h",
+         ]
+ 
++        if (!is_electron_build) {
++          deps = [
++            ":packed_resources_integrity_header",
++          ]
++        }
++
+         deps += [
+           ":chrome_dll",
+           ":chrome_exe_version",
+           ":copy_first_run",
+-          ":packed_resources_integrity_header",
+           ":visual_elements_resources",
+           "//base",
+           "//build:branding_buildflags",
+diff --git a/chrome/browser/BUILD.gn b/chrome/browser/BUILD.gn
+index 0811d62fd215de0231021c88c6083493b0a6b1ca..502275e7adf9388afeeaeca692784f9e9a060f8c 100644
+--- a/chrome/browser/BUILD.gn
++++ b/chrome/browser/BUILD.gn
+@@ -4763,7 +4763,7 @@ static_library("browser") {
+ 
+     # On Windows, the hashes are embedded in //chrome:chrome_initial rather
+     # than here in :chrome_dll.
+-    if (!is_win) {
++    if (!is_win && !is_electron_build) {
+       deps += [ "//chrome:packed_resources_integrity_header" ]
+       sources += [ "certificate_viewer_stub.cc" ]
+     }
+diff --git a/chrome/test/BUILD.gn b/chrome/test/BUILD.gn
+index 84ea91c781a2f777461a4e99d1c8c2cdf138dc22..0d8a1ed6cebd86de4efc36a93e20cb6034a16c10 100644
+--- a/chrome/test/BUILD.gn
++++ b/chrome/test/BUILD.gn
+@@ -7221,7 +7221,6 @@ if (!is_fuchsia) {
+ 
+       deps += [
+         "//chrome:other_version",
+-        "//chrome:packed_resources_integrity_header",
+         "//chrome//services/util_win:unit_tests",
+         "//chrome/app:chrome_dll_resources",
+         "//chrome/app:win_unit_tests",
+@@ -7242,6 +7241,10 @@ if (!is_fuchsia) {
+         "//ui/resources",
+       ]
+ 
++      if (!is_electron_build) {
++        deps += [ "//chrome:packed_resources_integrity_header" ]
++      }
++
+       ldflags = [
+         "/DELAYLOAD:api-ms-win-core-winrt-error-l1-1-0.dll",
+         "/DELAYLOAD:api-ms-win-core-winrt-l1-1-0.dll",
+@@ -8260,7 +8263,6 @@ if (!is_fuchsia) {
+       }
+ 
+       deps += [
+-        "//chrome:packed_resources_integrity_header",
+         "//chrome/browser/apps:icon_standardizer",
+         "//chrome/browser/apps/app_service",
+         "//chrome/browser/apps/app_service:app_registry_cache_waiter",
+@@ -8353,6 +8355,10 @@ if (!is_fuchsia) {
+         "//ui/webui/resources/js/browser_command:mojo_bindings",
+       ]
+ 
++      if (!is_electron_build) {
++        deps += [ "//chrome:packed_resources_integrity_header" ]
++      }
++
+       data += [ "//ash/components/arc/test/data/icons/" ]
+ 
+       if (include_js2gtest_tests && is_chromeos_ash) {

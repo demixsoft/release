@@ -1,0 +1,101 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <marshallofsound@electronjs.org>
+Date: Tue, 7 Mar 2023 16:17:41 -0800
+Subject: fix: lazyload fs in esm loaders to apply asar patches
+
+Changes { foo } from fs to just "fs.foo" so that our patching of fs is applied to esm loaders
+
+diff --git a/lib/internal/modules/esm/load.js b/lib/internal/modules/esm/load.js
+index 14d5236d0ead946acf9a2f63bf979e7193bfbf56..74136abfb9aae1fc8ab746908be752056b6d7c5a 100644
+--- a/lib/internal/modules/esm/load.js
++++ b/lib/internal/modules/esm/load.js
+@@ -10,7 +10,7 @@ const { kEmptyObject } = require('internal/util');
+ const { defaultGetFormat } = require('internal/modules/esm/get_format');
+ const { validateAssertions } = require('internal/modules/esm/assert');
+ const { getOptionValue } = require('internal/options');
+-const { readFileSync } = require('fs');
++const fs = require('fs');
+ 
+ // Do not eagerly grab .manifest, it may be in TDZ
+ const policy = getOptionValue('--experimental-policy') ?
+@@ -40,8 +40,7 @@ async function getSource(url, context) {
+   let responseURL = href;
+   let source;
+   if (protocol === 'file:') {
+-    const { readFile: readFileAsync } = require('internal/fs/promises').exports;
+-    source = await readFileAsync(url);
++    source = await fs.promises.readFile(url);
+   } else if (protocol === 'data:') {
+     const match = RegExpPrototypeExec(DATA_URL_PATTERN, url.pathname);
+     if (!match) {
+@@ -80,7 +79,7 @@ function getSourceSync(url, context) {
+   const responseURL = href;
+   let source;
+   if (protocol === 'file:') {
+-    source = readFileSync(url);
++    source = fs.readFileSync(url);
+   } else if (protocol === 'data:') {
+     const match = RegExpPrototypeExec(DATA_URL_PATTERN, url.pathname);
+     if (!match) {
+diff --git a/lib/internal/modules/esm/resolve.js b/lib/internal/modules/esm/resolve.js
+index acfcc1f1f92548117ded857fa8d4dd140e07ab2b..ce8092b96aee8d09ff382110db4be62dcd760cce 100644
+--- a/lib/internal/modules/esm/resolve.js
++++ b/lib/internal/modules/esm/resolve.js
+@@ -24,7 +24,7 @@ const {
+ } = primordials;
+ const internalFS = require('internal/fs/utils');
+ const { BuiltinModule } = require('internal/bootstrap/realm');
+-const { realpathSync } = require('fs');
++const fs = require('fs');
+ const { getOptionValue } = require('internal/options');
+ // Do not eagerly grab .manifest, it may be in TDZ
+ const policy = getOptionValue('--experimental-policy') ?
+@@ -235,7 +235,7 @@ function finalizeResolution(resolved, base, preserveSymlinks) {
+   }
+ 
+   if (!preserveSymlinks) {
+-    const real = realpathSync(path, {
++    const real = fs.realpathSync(path, {
+       [internalFS.realpathCacheKey]: realpathCache,
+     });
+     const { search, hash } = resolved;
+diff --git a/lib/internal/modules/esm/translators.js b/lib/internal/modules/esm/translators.js
+index 178f362b2869173d51b2e97a8d35a16ab4ed4962..4c3a0d8c484a402fe419a0bd45c7e2b1d717cb4a 100644
+--- a/lib/internal/modules/esm/translators.js
++++ b/lib/internal/modules/esm/translators.js
+@@ -25,7 +25,7 @@ function lazyTypes() {
+ }
+ 
+ const assert = require('internal/assert');
+-const { readFileSync } = require('fs');
++const fs = require('fs');
+ const { dirname, extname, isAbsolute } = require('path');
+ const {
+   hasEsmSyntax,
+@@ -132,7 +132,7 @@ translators.set('module', async function moduleStrategy(url, source, isMain) {
+  */
+ function enrichCJSError(err, content, filename) {
+   if (err != null && ObjectGetPrototypeOf(err) === SyntaxErrorPrototype &&
+-      hasEsmSyntax(content || readFileSync(filename, 'utf-8'))) {
++      hasEsmSyntax(content || fs.readFileSync(filename, 'utf-8'))) {
+     // Emit the warning synchronously because we are in the middle of handling
+     // a SyntaxError that will throw and likely terminate the process before an
+     // asynchronous warning would be emitted.
+@@ -294,7 +294,7 @@ translators.set('commonjs', async function commonjsStrategy(url, source,
+ 
+   try {
+     // We still need to read the FS to detect the exports.
+-    source ??= readFileSync(new URL(url), 'utf8');
++    source ??= fs.readFileSync(new URL(url), 'utf8');
+   } catch {
+     // Continue regardless of error.
+   }
+@@ -357,7 +357,7 @@ function cjsPreparseModuleExports(filename, source) {
+       isAbsolute(resolved)) {
+         // TODO: this should be calling the `load` hook chain to get the source
+         // (and fallback to reading the FS only if the source is nullish).
+-        const source = readFileSync(resolved, 'utf-8');
++        const source = fs.readFileSync(resolved, 'utf-8');
+         const { exportNames: reexportNames } = cjsPreparseModuleExports(resolved, source);
+         for (const name of reexportNames)
+           exportNames.add(name);

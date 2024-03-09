@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <sattard@slack-corp.com>
+Date: Wed, 22 May 2019 13:34:18 -0700
+Subject: chore: allow the node entrypoint to be a builtin_module
+
+This allows embedders to tell Node.js what the first "real" file is  when
+they use themselves as the entry point. We should try to upstream some form
+of this.
+
+diff --git a/lib/internal/modules/cjs/loader.js b/lib/internal/modules/cjs/loader.js
+index 84fea979d482d3d5cacfad4b09237e6345675cad..678ed0a7b43c30c5dd6102d83f490e23c95090ce 100644
+--- a/lib/internal/modules/cjs/loader.js
++++ b/lib/internal/modules/cjs/loader.js
+@@ -1215,6 +1215,13 @@ Module.prototype._compile = function(content, filename) {
+   if (getOptionValue('--inspect-brk') && process._eval == null) {
+     if (!resolvedArgv) {
+       // We enter the repl if we're not given a filename argument.
++      // process._firstFileName is used by Embedders to tell node what
++      // the first "real" file is when they use themselves as the entry
++      // point
++      if (process._firstFileName) {
++        resolvedArgv = process._firstFileName
++        delete process._firstFileName
++      } else
+       if (process.argv[1]) {
+         try {
+           resolvedArgv = Module._resolveFilename(process.argv[1], null, false);
+diff --git a/lib/internal/process/pre_execution.js b/lib/internal/process/pre_execution.js
+index 1f4a08515b5ae9e15ee987d9287f71b0fed3cb30..cbb89d76621de6a85b8e8697078d74c6bde0a742 100644
+--- a/lib/internal/process/pre_execution.js
++++ b/lib/internal/process/pre_execution.js
+@@ -197,11 +197,13 @@ function patchProcessObject(expandArgv1) {
+   if (expandArgv1 && process.argv[1] &&
+       !StringPrototypeStartsWith(process.argv[1], '-')) {
+     // Expand process.argv[1] into a full path.
+-    const path = require('path');
+-    try {
+-      process.argv[1] = path.resolve(process.argv[1]);
+-    } catch {
+-      // Continue regardless of error.
++    if (!process.argv[1] || !process.argv[1].startsWith('electron/js2c')) {
++      const path = require('path');
++      try {
++        process.argv[1] = path.resolve(process.argv[1]);
++      } catch {
++        // Continue regardless of error.
++      }
+     }
+   }
+ 

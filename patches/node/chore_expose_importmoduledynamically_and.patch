@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Attard <marshallofsound@electronjs.org>
+Date: Wed, 8 Mar 2023 13:02:17 -0800
+Subject: chore: expose ImportModuleDynamically and
+ HostInitializeImportMetaObjectCallback to embedders
+
+This also subtly changes the behavior of shouldNotRegisterESMLoader to ensure that node sets up the handlers
+internally but simply avoids setting its own handlers on the Isolate.  This is so that Electron can set it to
+its own blended handler between Node and Blink.
+
+Not upstreamable.
+
+diff --git a/lib/internal/modules/esm/utils.js b/lib/internal/modules/esm/utils.js
+index 985784383024450833a8324d45a7af2fe214a09c..356c10aef57454be3b4607156606784f473042cf 100644
+--- a/lib/internal/modules/esm/utils.js
++++ b/lib/internal/modules/esm/utils.js
+@@ -16,7 +16,7 @@ const {
+   ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING,
+   ERR_INVALID_ARG_VALUE,
+ } = require('internal/errors').codes;
+-const { getOptionValue } = require('internal/options');
++const { getOptionValue, getEmbedderOptions } = require('internal/options');
+ const {
+   loadPreloadModules,
+   initializeFrozenIntrinsics,
+@@ -148,12 +148,13 @@ async function importModuleDynamicallyCallback(symbol, specifier, assertions) {
+ // the loader worker in internal/main/worker_thread.js.
+ let _isLoaderWorker = false;
+ function initializeESM(isLoaderWorker = false) {
++  const shouldSetOnIsolate = !getEmbedderOptions().shouldNotRegisterESMLoader;
+   _isLoaderWorker = isLoaderWorker;
+   initializeDefaultConditions();
+   // Setup per-isolate callbacks that locate data or callbacks that we keep
+   // track of for different ESM modules.
+-  setInitializeImportMetaObjectCallback(initializeImportMetaObject);
+-  setImportModuleDynamicallyCallback(importModuleDynamicallyCallback);
++  setInitializeImportMetaObjectCallback(initializeImportMetaObject, shouldSetOnIsolate);
++  setImportModuleDynamicallyCallback(importModuleDynamicallyCallback, shouldSetOnIsolate);
+ }
+ 
+ function isLoaderWorker() {
+diff --git a/src/module_wrap.cc b/src/module_wrap.cc
+index a1b0f812391486c5a429398326091a30bbe81692..a316d077f2d2ff38564959345cf8ef29a3ac678f 100644
+--- a/src/module_wrap.cc
++++ b/src/module_wrap.cc
+@@ -547,7 +547,7 @@ MaybeLocal<Module> ModuleWrap::ResolveModuleCallback(
+   return module->module_.Get(isolate);
+ }
+ 
+-static MaybeLocal<Promise> ImportModuleDynamically(
++MaybeLocal<Promise> ImportModuleDynamically(
+     Local<Context> context,
+     Local<v8::Data> host_defined_options,
+     Local<Value> resource_name,
+@@ -610,12 +610,13 @@ void ModuleWrap::SetImportModuleDynamicallyCallback(
+   Environment* env = Environment::GetCurrent(args);
+   HandleScope handle_scope(isolate);
+ 
+-  CHECK_EQ(args.Length(), 1);
++  CHECK_EQ(args.Length(), 2);
+   CHECK(args[0]->IsFunction());
+   Local<Function> import_callback = args[0].As<Function>();
+   env->set_host_import_module_dynamically_callback(import_callback);
+ 
+-  isolate->SetHostImportModuleDynamicallyCallback(ImportModuleDynamically);
++  if (args[1]->IsBoolean() && args[1]->BooleanValue(isolate))
++    isolate->SetHostImportModuleDynamicallyCallback(ImportModuleDynamically);
+ }
+ 
+ void ModuleWrap::HostInitializeImportMetaObjectCallback(
+@@ -652,13 +653,14 @@ void ModuleWrap::SetInitializeImportMetaObjectCallback(
+   Environment* env = Environment::GetCurrent(args);
+   Isolate* isolate = env->isolate();
+ 
+-  CHECK_EQ(args.Length(), 1);
++  CHECK_EQ(args.Length(), 2);
+   CHECK(args[0]->IsFunction());
+   Local<Function> import_meta_callback = args[0].As<Function>();
+   env->set_host_initialize_import_meta_object_callback(import_meta_callback);
+ 
+-  isolate->SetHostInitializeImportMetaObjectCallback(
+-      HostInitializeImportMetaObjectCallback);
++  if (args[1]->IsBoolean() && args[1]->BooleanValue(isolate))
++    isolate->SetHostInitializeImportMetaObjectCallback(
++        HostInitializeImportMetaObjectCallback);
+ }
+ 
+ MaybeLocal<Value> ModuleWrap::SyntheticModuleEvaluationStepsCallback(
+diff --git a/src/module_wrap.h b/src/module_wrap.h
+index 6435bad40936fe235822c0597310b94ab98082f3..8f30f546cc47bdb402ef4b1217d7bbb675a85ef7 100644
+--- a/src/module_wrap.h
++++ b/src/module_wrap.h
+@@ -30,7 +30,14 @@ enum HostDefinedOptions : int {
+   kLength = 9,
+ };
+ 
+-class ModuleWrap : public BaseObject {
++NODE_EXTERN v8::MaybeLocal<v8::Promise> ImportModuleDynamically(
++    v8::Local<v8::Context> context,
++    v8::Local<v8::Data> host_defined_options,
++    v8::Local<v8::Value> resource_name,
++    v8::Local<v8::String> specifier,
++    v8::Local<v8::FixedArray> import_assertions);
++
++class NODE_EXTERN ModuleWrap : public BaseObject {
+  public:
+   enum InternalFields {
+     kModuleSlot = BaseObject::kInternalFieldCount,
+@@ -65,6 +72,8 @@ class ModuleWrap : public BaseObject {
+     return true;
+   }
+ 
++  static ModuleWrap* GetFromModule(node::Environment*, v8::Local<v8::Module>);
++
+  private:
+   ModuleWrap(Environment* env,
+              v8::Local<v8::Object> object,
+@@ -99,7 +108,6 @@ class ModuleWrap : public BaseObject {
+       v8::Local<v8::String> specifier,
+       v8::Local<v8::FixedArray> import_assertions,
+       v8::Local<v8::Module> referrer);
+-  static ModuleWrap* GetFromModule(node::Environment*, v8::Local<v8::Module>);
+ 
+   v8::Global<v8::Module> module_;
+   std::unordered_map<std::string, v8::Global<v8::Promise>> resolve_cache_;

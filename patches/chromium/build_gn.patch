@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ales Pergl <alpergl@microsoft.com>
+Date: Thu, 20 Sep 2018 17:44:29 -0700
+Subject: build_gn.patch
+
+These are variables we add to the root BUILDCONFIG so that they're available
+everywhere, without having to import("//electron/.../flags.gni").
+
+diff --git a/build/config/BUILDCONFIG.gn b/build/config/BUILDCONFIG.gn
+index 8b8cf6bc8f8a449cf70b66d37fa74f8599b9abda..31b28d852fe229e1d9cb8d71abe589d2b49e6d44 100644
+--- a/build/config/BUILDCONFIG.gn
++++ b/build/config/BUILDCONFIG.gn
+@@ -123,6 +123,9 @@ if (current_os == "") {
+ #   even if the value is overridden, which is wasteful. See first bullet.
+ 
+ declare_args() {
++  is_electron_build = false
++  is_mas_build = false
++
+   # Set to enable the official build level of optimization. This has nothing
+   # to do with branding, but enables an additional level of optimization above
+   # release (!is_debug). This might be better expressed as a tri-state
